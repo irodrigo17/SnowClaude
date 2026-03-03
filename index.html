@@ -506,6 +506,47 @@
         .leaflet-popup-content-wrapper { border-radius: 10px !important; }
         .leaflet-popup-content { margin: 12px 14px !important; }
 
+        /* Locate button */
+        .locate-btn {
+            position: absolute;
+            bottom: 24px;
+            right: 14px;
+            z-index: 800;
+            width: 36px;
+            height: 36px;
+            background: #fff;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.15);
+            transition: background 0.15s;
+        }
+
+        .locate-btn:hover { background: #f4f4f4; }
+
+        .locate-btn svg {
+            width: 18px;
+            height: 18px;
+            fill: none;
+            stroke: #333;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .locate-btn.locating svg {
+            stroke: var(--accent);
+            animation: pulse-locate 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse-locate {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
         /* Mobile toggle */
         .mob-toggle {
             display: none;
@@ -554,6 +595,9 @@
         </div>
         <div class="map-wrap">
             <div id="map"></div>
+            <button class="locate-btn" id="locate-btn" title="Show my location">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="8" fill="none"/></svg>
+            </button>
             <div class="overlay-ctrl" id="overlay-ctrl">
                 <div class="oc-head">
                     <span>Snowfall overlay</span>
@@ -605,6 +649,8 @@
         let savedPlaces = [];
         let map, markers = [];
         let popupCtx = null;
+        let userLocationMarker = null;
+        let cachedUserLocation = null;
 
         try {
             savedPlaces = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
@@ -619,6 +665,9 @@
             setupSearch();
             setupEvents();
             initOverlay();
+            document.getElementById('locate-btn').addEventListener('click', function () {
+                locateUser(true);
+            });
         }
 
         // --- Map ---
@@ -1172,6 +1221,43 @@
 
             if (ovLayer) map.removeLayer(ovLayer);
             ovLayer = newLayer;
+        }
+
+        // --- Geolocation ---
+        function showUserLocation(lat, lon) {
+            if (userLocationMarker) map.removeLayer(userLocationMarker);
+            userLocationMarker = L.circleMarker([lat, lon], {
+                radius: 8,
+                fillColor: '#3b82f6',
+                color: '#fff',
+                weight: 3,
+                fillOpacity: 0.9
+            }).addTo(map);
+            userLocationMarker.bindTooltip('Your location', { direction: 'top', offset: [0, -10] });
+        }
+
+        function locateUser(centerMap) {
+            if (!navigator.geolocation) return;
+            if (cachedUserLocation) {
+                showUserLocation(cachedUserLocation.lat, cachedUserLocation.lon);
+                if (centerMap) map.setView([cachedUserLocation.lat, cachedUserLocation.lon], 10);
+                return;
+            }
+            var btn = document.getElementById('locate-btn');
+            btn.classList.add('locating');
+            navigator.geolocation.getCurrentPosition(
+                function (pos) {
+                    btn.classList.remove('locating');
+                    var lat = pos.coords.latitude;
+                    var lon = pos.coords.longitude;
+                    cachedUserLocation = { lat: lat, lon: lon };
+                    showUserLocation(lat, lon);
+                    if (centerMap) map.setView([lat, lon], 10);
+                },
+                function () {
+                    btn.classList.remove('locating');
+                }
+            );
         }
 
         // --- Start ---
