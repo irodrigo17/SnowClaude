@@ -139,6 +139,11 @@
             font-weight: 600;
         }
 
+        .sidebar-actions {
+            display: flex;
+            gap: 2px;
+        }
+
         .btn-icon {
             background: none;
             border: none;
@@ -151,6 +156,25 @@
         }
 
         .btn-icon:hover { background: var(--border); color: var(--text); }
+
+        .btn-icon.copied {
+            position: relative;
+        }
+
+        .btn-icon.copied::after {
+            content: 'Copied!';
+            position: absolute;
+            bottom: -24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--text);
+            color: #fff;
+            font-size: 10px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            pointer-events: none;
+        }
 
         .places-list {
             padding: 0 10px 0;
@@ -709,7 +733,10 @@
         <div class="sidebar" id="sidebar">
             <div class="sidebar-head">
                 <h2>Saved Places</h2>
-                <button class="btn-icon" id="btn-refresh" title="Refresh all data">&#8635;</button>
+                <div class="sidebar-actions">
+                    <button class="btn-icon" id="btn-share" title="Copy share link">&#128279;</button>
+                    <button class="btn-icon" id="btn-refresh" title="Refresh all data">&#8635;</button>
+                </div>
             </div>
             <div class="sidebar-scroll">
                 <div class="places-list" id="places-list"></div>
@@ -781,9 +808,35 @@
         let userLocationMarker = null;
         let cachedUserLocation = null;
 
-        try {
-            savedPlaces = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
-        } catch { savedPlaces = []; }
+        function loadFromHash() {
+            try {
+                var hash = window.location.hash;
+                if (hash && hash.startsWith('#places=')) {
+                    var encoded = hash.slice('#places='.length);
+                    var json = decodeURIComponent(atob(encoded));
+                    return JSON.parse(json);
+                }
+            } catch (e) { console.error('Failed to load from URL:', e); }
+            return null;
+        }
+
+        function placesToHash() {
+            var minimal = savedPlaces.map(function (p) {
+                var o = { lat: p.lat, lon: p.lon, name: p.name };
+                if (p.customName) o.customName = p.customName;
+                return o;
+            });
+            return '#places=' + btoa(JSON.stringify(minimal));
+        }
+
+        var hashPlaces = loadFromHash();
+        if (hashPlaces && hashPlaces.length > 0) {
+            savedPlaces = hashPlaces;
+        } else {
+            try {
+                savedPlaces = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
+            } catch { savedPlaces = []; }
+        }
 
         // --- Boot ---
         function init() {
@@ -985,6 +1038,11 @@
         // --- Saved Places ---
         function persist() {
             try { localStorage.setItem(STORE_KEY, JSON.stringify(savedPlaces)); } catch {}
+            if (savedPlaces.length > 0) {
+                history.replaceState(null, '', placesToHash());
+            } else {
+                history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
         }
 
         function isPlaceSaved(lat, lon) {
@@ -1069,6 +1127,16 @@
                 savedPlaces.forEach(function (p) { p.snowfall = null; });
                 renderList();
                 refreshAll();
+            });
+
+            document.getElementById('btn-share').addEventListener('click', function () {
+                var btn = this;
+                persist();
+                var url = window.location.href;
+                navigator.clipboard.writeText(url).then(function () {
+                    btn.classList.add('copied');
+                    setTimeout(function () { btn.classList.remove('copied'); }, 1500);
+                });
             });
 
             document.getElementById('mob-toggle').addEventListener('click', function () {
