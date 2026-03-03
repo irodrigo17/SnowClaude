@@ -153,9 +153,13 @@
         .btn-icon:hover { background: var(--border); color: var(--text); }
 
         .places-list {
+            padding: 0 10px 0;
+        }
+
+        .sidebar-scroll {
             flex: 1;
             overflow-y: auto;
-            padding: 0 10px 10px;
+            padding-bottom: 10px;
         }
 
         .empty-state {
@@ -164,6 +168,122 @@
             color: var(--text-sec);
             font-size: 13px;
             line-height: 1.6;
+        }
+
+        /* Ski resorts section */
+        .resorts-section {
+            border-top: 1px solid var(--border);
+            padding: 0 10px 10px;
+        }
+
+        .resorts-head {
+            padding: 12px 6px 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .resorts-head h3 {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .btn-find-resorts {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: background 0.15s;
+        }
+
+        .btn-find-resorts:hover { background: var(--accent-hover); }
+
+        .btn-find-resorts:disabled {
+            background: var(--border);
+            color: var(--text-sec);
+            cursor: default;
+        }
+
+        .resort-card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            transition: box-shadow 0.15s;
+            border: 1px solid transparent;
+        }
+
+        .resort-card:hover {
+            box-shadow: var(--shadow-lg);
+            border-color: var(--border);
+        }
+
+        .resort-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .resort-name {
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .resort-dist {
+            font-size: 11px;
+            color: var(--text-sec);
+            margin-top: 1px;
+        }
+
+        .btn-save-resort {
+            background: none;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            padding: 4px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: all 0.15s;
+            flex-shrink: 0;
+        }
+
+        .btn-save-resort:hover {
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .btn-save-resort.saved {
+            background: #16a34a;
+            border-color: #16a34a;
+            color: #fff;
+            cursor: default;
+        }
+
+        .resorts-loading {
+            font-size: 12px;
+            color: var(--text-sec);
+            padding: 10px 6px;
+        }
+
+        .resorts-empty {
+            font-size: 12px;
+            color: var(--text-sec);
+            padding: 10px 6px;
+            text-align: center;
         }
 
         /* Place card */
@@ -591,7 +711,16 @@
                 <h2>Saved Places</h2>
                 <button class="btn-icon" id="btn-refresh" title="Refresh all data">&#8635;</button>
             </div>
-            <div class="places-list" id="places-list"></div>
+            <div class="sidebar-scroll">
+                <div class="places-list" id="places-list"></div>
+                <div class="resorts-section" id="resorts-section">
+                    <div class="resorts-head">
+                        <h3>Nearby Ski Resorts</h3>
+                        <button class="btn-find-resorts" id="btn-find-resorts">Find</button>
+                    </div>
+                    <div id="resorts-list"></div>
+                </div>
+            </div>
         </div>
         <div class="map-wrap">
             <div id="map"></div>
@@ -665,6 +794,7 @@
             setupSearch();
             setupEvents();
             initOverlay();
+            setupResorts();
             document.getElementById('locate-btn').addEventListener('click', function () {
                 locateUser(true);
             });
@@ -867,6 +997,7 @@
             persist();
             renderList();
             updateMarkers();
+            if (resortResults.length > 0) renderResorts();
         }
 
         function removePlace(idx) {
@@ -874,6 +1005,7 @@
             persist();
             renderList();
             updateMarkers();
+            if (resortResults.length > 0) renderResorts();
         }
 
         function focusPlace(idx) {
@@ -1221,6 +1353,138 @@
 
             if (ovLayer) map.removeLayer(ovLayer);
             ovLayer = newLayer;
+        }
+
+        // --- Ski Resorts ---
+        var resortResults = [];
+
+        function haversineKm(lat1, lon1, lat2, lon2) {
+            var R = 6371;
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLon = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        async function fetchNearbyResorts(bounds) {
+            var south = bounds.getSouth();
+            var west = bounds.getWest();
+            var north = bounds.getNorth();
+            var east = bounds.getEast();
+            var bbox = south + ',' + west + ',' + north + ',' + east;
+            var center = bounds.getCenter();
+            var query = '[out:json][timeout:15];'
+                + '('
+                + 'nwr["landuse"="winter_sports"](' + bbox + ');'
+                + 'nwr["sport"="skiing"](' + bbox + ');'
+                + ');out center tags 100;';
+            var r = await fetch('https://overpass-api.de/api/interpreter', {
+                method: 'POST',
+                body: 'data=' + encodeURIComponent(query),
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+            if (!r.ok) throw new Error(r.status);
+            var data = await r.json();
+
+            var seen = {};
+            var resorts = [];
+            data.elements.forEach(function (el) {
+                var rlat = el.lat || (el.center && el.center.lat);
+                var rlon = el.lon || (el.center && el.center.lon);
+                var name = el.tags && el.tags.name;
+                if (!rlat || !rlon || !name) return;
+                var key = name.toLowerCase() + '_' + rlat.toFixed(2) + '_' + rlon.toFixed(2);
+                if (seen[key]) return;
+                seen[key] = true;
+                resorts.push({
+                    name: name,
+                    lat: rlat,
+                    lon: rlon,
+                    dist: haversineKm(center.lat, center.lng, rlat, rlon)
+                });
+            });
+
+            resorts.sort(function (a, b) { return a.dist - b.dist; });
+            return resorts.slice(0, 10);
+        }
+
+        function renderResorts() {
+            var el = document.getElementById('resorts-list');
+            if (resortResults.length === 0) {
+                el.innerHTML = '<div class="resorts-empty">No ski resorts found in the current map area.</div>';
+                return;
+            }
+            el.innerHTML = resortResults.map(function (r, i) {
+                var saved = isPlaceSaved(r.lat, r.lon);
+                var distStr = r.dist < 1 ? '<1 km' : Math.round(r.dist) + ' km away';
+                return '<div class="resort-card" data-ridx="' + i + '">'
+                    + '<div class="resort-info">'
+                    + '<div class="resort-name">' + esc(r.name) + '</div>'
+                    + '<div class="resort-dist">' + distStr + '</div>'
+                    + '</div>'
+                    + (saved
+                        ? '<button class="btn-save-resort saved" disabled>Saved</button>'
+                        : '<button class="btn-save-resort" data-saveidx="' + i + '">Save</button>')
+                    + '</div>';
+            }).join('');
+        }
+
+        function setupResorts() {
+            var btn = document.getElementById('btn-find-resorts');
+            var listEl = document.getElementById('resorts-list');
+
+            btn.addEventListener('click', function () {
+                doFetchResorts(map.getBounds());
+            });
+
+            listEl.addEventListener('click', function (e) {
+                var saveBtn = e.target.closest('[data-saveidx]');
+                if (saveBtn) {
+                    e.stopPropagation();
+                    var idx = parseInt(saveBtn.dataset.saveidx);
+                    var r = resortResults[idx];
+                    if (!r) return;
+                    savePlace(r.lat, r.lon, r.name, null);
+                    refreshPlace(0);
+                    saveBtn.textContent = 'Saved';
+                    saveBtn.classList.add('saved');
+                    saveBtn.disabled = true;
+                    return;
+                }
+                var card = e.target.closest('.resort-card');
+                if (card) {
+                    var ridx = parseInt(card.dataset.ridx);
+                    var resort = resortResults[ridx];
+                    if (!resort) return;
+                    map.setView([resort.lat, resort.lon], 12);
+                    openLoadingPopup(resort.lat, resort.lon);
+                    fetchSnowfall(resort.lat, resort.lon).then(function (snowfall) {
+                        openResultPopup(resort.lat, resort.lon, resort.name, snowfall);
+                    });
+                    if (window.innerWidth <= 740) {
+                        document.getElementById('sidebar').classList.add('hidden');
+                    }
+                }
+            });
+        }
+
+        async function doFetchResorts(lat, lon) {
+            var btn = document.getElementById('btn-find-resorts');
+            var listEl = document.getElementById('resorts-list');
+            btn.disabled = true;
+            btn.textContent = 'Searching\u2026';
+            listEl.innerHTML = '<div class="resorts-loading">Searching for ski resorts nearby\u2026</div>';
+            try {
+                resortResults = await fetchNearbyResorts(lat, lon);
+                renderResorts();
+            } catch (e) {
+                console.error('Resort search error:', e);
+                listEl.innerHTML = '<div class="resorts-empty">Failed to load ski resorts. Try again.</div>';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Find';
         }
 
         // --- Geolocation ---
